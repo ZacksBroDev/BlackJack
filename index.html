@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blackjack Trainer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="title">Blackjack Trainer</div>
+      <div class="subtitle">First decision grading • 6 decks • S17 • No splits • No surrender</div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="k">Accuracy</div>
+        <div class="v" id="acc">0%</div>
+      </div>
+      <div class="stat">
+        <div class="k">Streak</div>
+        <div class="v" id="streak">0</div>
+      </div>
+      <div class="stat">
+        <div class="k">Best</div>
+        <div class="v" id="best">0</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="table">
+      <div class="panel">
+        <div class="panelHead">
+          <div class="h">Dealer</div>
+          <div class="meta" id="dealerMeta">Upcard: —</div>
+        </div>
+        <div class="cards" id="dealerCards"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panelHead">
+          <div class="h">You</div>
+          <div class="meta" id="playerMeta">Total: —</div>
+        </div>
+        <div class="cards" id="playerCards"></div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="msg" id="msg">Click “Deal” to start.</div>
+
+      <div class="actions">
+        <button class="btn primary" id="dealBtn">Deal</button>
+        <button class="btn" id="hitBtn" disabled>Hit</button>
+        <button class="btn" id="standBtn" disabled>Stand</button>
+        <button class="btn" id="doubleBtn" disabled>Double</button>
+        <button class="btn ghost" id="nextBtn" disabled>Next Hand</button>
+        <button class="btn ghost" id="resetBtn">Reset Stats</button>
+      </div>
+
+      <div class="footerNote">
+        Grading is applied to your <b>first decision only</b> (the basic strategy chart is for initial two-card
+        decisions).
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
