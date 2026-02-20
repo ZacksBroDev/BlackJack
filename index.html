@@ -12,7 +12,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="title">Blackjack Trainer</div>
-      <div class="subtitle">First decision grading • 6 decks • S17 • No splits • No surrender</div>
+      <div class="subtitle">First decision grading • 6 decks • S17 • Splits allowed • No surrender</div>
     </div>
     <div class="stats">
       <div class="stat">
@@ -57,6 +57,7 @@
         <button class="btn" id="hitBtn" disabled>Hit</button>
         <button class="btn" id="standBtn" disabled>Stand</button>
         <button class="btn" id="doubleBtn" disabled>Double</button>
+        <button class="btn" id="splitBtn" disabled>Split</button>
         <button class="btn ghost" id="nextBtn" disabled>Next Hand</button>
         <button class="btn ghost" id="resetBtn">Reset Stats</button>
       </div>
@@ -64,6 +65,57 @@
       <div class="footerNote">
         Grading is applied to your <b>first decision only</b> (the basic strategy chart is for initial two-card
         decisions).
+      </div>
+    </section>
+
+    <section class="counting-panel" id="countingPanel">
+      <div class="counting-header">
+        <h3>Card Counting (Hi-Lo)</h3>
+        <label class="toggle-label">
+          <input type="checkbox" id="showCounting" checked>
+          <span>Show Counting</span>
+        </label>
+      </div>
+
+      <div id="countingDisplay" class="counting-content">
+        <div class="count-main">
+          <div class="count-item">
+            <span class="count-label">Running Count</span>
+            <span id="runningCount" class="count-value">0</span>
+          </div>
+          <div class="count-item">
+            <span class="count-label">True Count</span>
+            <span id="trueCount" class="count-value">0.00</span>
+          </div>
+          <div class="count-item">
+            <span class="count-label">Decks Left</span>
+            <span id="decksRemaining" class="count-value">0.00</span>
+          </div>
+        </div>
+
+        <div class="last-card">
+          <span id="lastCardText">Last: —</span>
+        </div>
+
+        <details class="count-breakdown">
+          <summary>Breakdown</summary>
+          <div class="breakdown-content">
+            <div>Lows (2–6): <span id="lowsSeen">0</span></div>
+            <div>Neutrals (7–9): <span id="neutralsSeen">0</span></div>
+            <div>Highs (10–A): <span id="highsSeen">0</span></div>
+          </div>
+        </details>
+
+        <label class="toggle-label coach-mode">
+          <input type="checkbox" id="coachMode">
+          <span>Coach Mode</span>
+        </label>
+        <div id="coachText" class="coach-hint" style="display: none;"></div>
+
+        <div class="count-coach" id="countCoach" style="display: none;">
+          <div class="coach-title">📊 Count-Based Suggestion</div>
+          <div id="countCoachText"></div>
+        </div>
       </div>
     </section>
   </main>

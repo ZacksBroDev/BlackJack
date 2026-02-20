@@ -197,6 +197,167 @@ body {
   font-size: 12px;
 }
 
+/* Card Counting Panel */
+.counting-panel {
+  background: rgba(18, 26, 38, .55);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.counting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.counting-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+}
+
+.toggle-label input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+.counting-content {
+  display: block;
+}
+
+.counting-content.hidden {
+  display: none;
+}
+
+.count-main {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.count-item {
+  flex: 1;
+  min-width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  background: rgba(15, 22, 34, .65);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.count-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.count-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.last-card {
+  padding: 10px;
+  background: rgba(15, 22, 34, .65);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.count-breakdown {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.count-breakdown summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 6px;
+  list-style: none;
+  user-select: none;
+}
+
+.count-breakdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.count-breakdown summary::before {
+  content: "▸ ";
+}
+
+.count-breakdown[open] summary::before {
+  content: "▾ ";
+}
+
+.breakdown-content {
+  padding: 10px;
+  background: rgba(15, 22, 34, .65);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 6px;
+}
+
+.breakdown-content div {
+  padding: 4px 0;
+  color: var(--text);
+}
+
+.coach-mode {
+  margin-top: 10px;
+}
+
+.coach-hint {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(251, 191, 36, .15);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.count-coach {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(45, 212, 191, .15);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.count-coach .coach-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--ok);
+}
+
+.count-coach #countCoachText {
+  color: var(--text);
+  line-height: 1.5;
+}
+
 @media (max-width: 860px) {
   .table {
     grid-template-columns: 1fr;

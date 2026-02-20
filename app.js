@@ -2,8 +2,8 @@
 
 /**
  * Blackjack First-Decision Trainer
- * Rules: 6 decks, Dealer stands on all 17s (S17), no splits, no surrender.
- * Grades only the first decision using basic strategy for hard/soft totals.
+ * Rules: 6 decks, Dealer stands on all 17s (S17), splits allowed, no surrender.
+ * Grades only the first decision using basic strategy for hard/soft totals and pairs.
  */
 
 // -------------------- State --------------------
@@ -18,6 +18,19 @@ let player = [];
 let dealer = [];
 let firstDecisionOpen = false; // only grade the first decision
 let handOver = true;
+let splitHands = []; // for split gameplay
+let currentHandIndex = 0; // which split hand is active
+
+// -------------------- Card Counting State --------------------
+const countState = {
+  runningCount: 0,
+  lowsSeen: 0, // 2-6
+  neutralsSeen: 0, // 7-9
+  highsSeen: 0, // 10-A
+  lastCard: null,
+  lastDelta: 0,
+  dealerHoleCounted: false,
+};
 
 // -------------------- DOM --------------------
 const el = (id) => document.getElementById(id);
@@ -36,8 +49,23 @@ const dealBtn = el("dealBtn");
 const hitBtn = el("hitBtn");
 const standBtn = el("standBtn");
 const doubleBtn = el("doubleBtn");
+const splitBtn = el("splitBtn");
 const nextBtn = el("nextBtn");
 const resetBtn = el("resetBtn");
+
+const runningCountEl = el("runningCount");
+const trueCountEl = el("trueCount");
+const decksRemainingEl = el("decksRemaining");
+const lastCardTextEl = el("lastCardText");
+const lowsSeenEl = el("lowsSeen");
+const neutralsSeenEl = el("neutralsSeen");
+const highsSeenEl = el("highsSeen");
+const coachTextEl = el("coachText");
+const showCountingEl = el("showCounting");
+const coachModeEl = el("coachMode");
+const countingDisplayEl = el("countingDisplay");
+const countCoachEl = el("countCoach");
+const countCoachTextEl = el("countCoachText");
 
 // -------------------- Stats --------------------
 const STATS_KEY = "bj_trainer_stats_v1";
@@ -94,6 +122,7 @@ function newShoe() {
     }
   }
   shuffle(shoe);
+  resetCount();
 }
 
 function shuffle(arr) {
@@ -139,12 +168,63 @@ function dealerUpColumn(card) {
   return card.r; // 2..9
 }
 
+function isPair(hand) {
+  if (hand.length !== 2) return false;
+  const v1 = rankValue(hand[0].r);
+  const v2 = rankValue(hand[1].r);
+  return v1 === v2;
+}
+
+function getPairRank(hand) {
+  if (!isPair(hand)) return null;
+  const val = rankValue(hand[0].r);
+  if (val === 11) return "A";
+  return String(val);
+}
+
 // -------------------- Basic Strategy (first decision only) --------------------
-// From the chart class: multi-deck, S17. No surrender, no splits.
-// Returns: 'H' | 'S' | 'D' (Double if allowed else fallback to H/S where appropriate)
-function recommendedFirstAction(pHand, dUpCard, canDouble) {
+// From the chart class: multi-deck, S17. No surrender, includes splits.
+// Returns: 'H' | 'S' | 'D' | 'SP' (Double if allowed else fallback to H/S where appropriate)
+function recommendedFirstAction(pHand, dUpCard, canDouble, canSplit) {
   const up = dealerUpColumn(dUpCard);
   const { total, isSoft } = handTotals(pHand);
+
+  // Check for pairs first
+  if (canSplit && isPair(pHand)) {
+    const pairRank = getPairRank(pHand);
+
+    // Pair splitting strategy (basic strategy)
+    if (pairRank === "A" || pairRank === "8") return "SP"; // Always split A,A and 8,8
+    if (pairRank === "10") return "S"; // Never split 10,10
+    if (pairRank === "9") {
+      // Split 9,9 vs 2-9 except 7
+      return ["2", "3", "4", "5", "6", "8", "9"].includes(up) ? "SP" : "S";
+    }
+    if (pairRank === "7") {
+      // Split 7,7 vs 2-7
+      return ["2", "3", "4", "5", "6", "7"].includes(up) ? "SP" : "H";
+    }
+    if (pairRank === "6") {
+      // Split 6,6 vs 2-6
+      return ["2", "3", "4", "5", "6"].includes(up) ? "SP" : "H";
+    }
+    if (pairRank === "5") {
+      // Never split 5,5 (treat as 10)
+      return ["2", "3", "4", "5", "6", "7", "8", "9"].includes(up)
+        ? canDouble
+          ? "D"
+          : "H"
+        : "H";
+    }
+    if (pairRank === "4") {
+      // Split 4,4 vs 5-6
+      return ["5", "6"].includes(up) ? "SP" : "H";
+    }
+    if (pairRank === "3" || pairRank === "2") {
+      // Split 2,2 and 3,3 vs 2-7
+      return ["2", "3", "4", "5", "6", "7"].includes(up) ? "SP" : "H";
+    }
+  }
 
   // Hard totals
   if (!isSoft) {
@@ -190,15 +270,186 @@ function explain(rec, dUp) {
     return `Double: your hand has strong equity vs dealer ${up}. Press the advantage.`;
   if (rec === "S")
     return `Stand: you’re in a stable position and dealer ${up} is weak enough.`;
+  if (rec === "SP")
+    return `Split: splitting this pair vs dealer ${up} is optimal for long-term EV.`;
   return `Hit: standing is too passive versus dealer ${up}. Improve your total.`;
 }
+// -------------------- Card Counting --------------------
+function getHiLoValue(rank) {
+  // 2-6 = +1, 7-9 = 0, 10/J/Q/K/A = -1
+  if (["2", "3", "4", "5", "6"].includes(rank)) return 1;
+  if (["7", "8", "9"].includes(rank)) return 0;
+  return -1; // 10, J, Q, K, A
+}
 
+function revealCard(card) {
+  if (!card) return;
+
+  const delta = getHiLoValue(card.r);
+  countState.runningCount += delta;
+  countState.lastCard = card;
+  countState.lastDelta = delta;
+
+  // Update breakdown
+  if (delta === 1) countState.lowsSeen++;
+  else if (delta === 0) countState.neutralsSeen++;
+  else countState.highsSeen++;
+
+  updateCountingDisplay();
+}
+
+function getTrueCount() {
+  const decksLeft = Math.max(shoe.length / 52, 0.25);
+  return countState.runningCount / decksLeft;
+}
+
+function getDecksRemaining() {
+  return Math.max(shoe.length / 52, 0.25);
+}
+
+function resetCount() {
+  countState.runningCount = 0;
+  countState.lowsSeen = 0;
+  countState.neutralsSeen = 0;
+  countState.highsSeen = 0;
+  countState.lastCard = null;
+  countState.lastDelta = 0;
+  countState.dealerHoleCounted = false;
+  updateCountingDisplay();
+}
+
+function updateCountingDisplay() {
+  if (!runningCountEl) return; // UI not loaded yet
+
+  runningCountEl.textContent = countState.runningCount;
+  trueCountEl.textContent = getTrueCount().toFixed(2);
+  decksRemainingEl.textContent = getDecksRemaining().toFixed(2);
+
+  if (countState.lastCard) {
+    const sign = countState.lastDelta > 0 ? "+" : "";
+    lastCardTextEl.textContent = `Last: ${countState.lastCard.r}${countState.lastCard.s} → ${sign}${countState.lastDelta}`;
+  } else {
+    lastCardTextEl.textContent = "Last: —";
+  }
+
+  lowsSeenEl.textContent = countState.lowsSeen;
+  neutralsSeenEl.textContent = countState.neutralsSeen;
+  highsSeenEl.textContent = countState.highsSeen;
+
+  // Coach mode hint
+  if (coachModeEl?.checked && coachTextEl) {
+    const tc = getTrueCount();
+    let hint = "";
+    if (tc >= 2) hint = "Favorable count! Consider increasing bet size.";
+    else if (tc <= -2) hint = "Unfavorable count. Minimum bet recommended.";
+    else hint = "Neutral count. Standard strategy applies.";
+
+    coachTextEl.textContent = hint;
+    coachTextEl.style.display = "block";
+  } else if (coachTextEl) {
+    coachTextEl.style.display = "none";
+  }
+
+  // Update count coach suggestions if in hand
+  updateCountCoach();
+}
+
+function updateCountCoach() {
+  if (!countCoachEl || !countCoachTextEl) return;
+  if (handOver || !firstDecisionOpen) {
+    countCoachEl.style.display = "none";
+    return;
+  }
+
+  const tc = getTrueCount();
+  const up = dealerUpColumn(dealer[0]);
+  const { total, isSoft } = handTotals(player);
+  let suggestions = [];
+
+  // Betting advice
+  if (tc >= 3)
+    suggestions.push(
+      `💰 High count (TC +${tc.toFixed(1)})! This is a great time to increase your bet.`,
+    );
+  else if (tc >= 2)
+    suggestions.push(
+      `💰 Favorable count (TC +${tc.toFixed(1)}). Consider raising your bet.`,
+    );
+  else if (tc <= -2)
+    suggestions.push(
+      `⚠️ Unfavorable count (TC ${tc.toFixed(1)}). Bet minimum or take a break.`,
+    );
+
+  // Playing deviations (Illustrious 18 - simplified)
+  if (!isSoft) {
+    if (total === 16 && up === "10" && tc >= 0) {
+      suggestions.push(
+        `🎯 16 vs 10: With TC ${tc.toFixed(1)}, STAND (basic says hit, but count favors standing).`,
+      );
+    }
+    if (total === 15 && up === "10" && tc >= 4) {
+      suggestions.push(
+        `🎯 15 vs 10: With high TC ${tc.toFixed(1)}, consider STANDING (deviation from basic).`,
+      );
+    }
+    if (total === 12 && up === "3" && tc >= 2) {
+      suggestions.push(
+        `🎯 12 vs 3: With TC ${tc.toFixed(1)}, STAND (basic says hit).`,
+      );
+    }
+    if (total === 12 && up === "2" && tc >= 3) {
+      suggestions.push(
+        `🎯 12 vs 2: With TC ${tc.toFixed(1)}, STAND (basic says hit).`,
+      );
+    }
+    if (total === 13 && up === "2" && tc <= -1) {
+      suggestions.push(
+        `🎯 13 vs 2: With negative TC ${tc.toFixed(1)}, HIT (basic says stand).`,
+      );
+    }
+    if (total === 10 && up === "10" && tc >= 4) {
+      suggestions.push(
+        `🎯 10 vs 10: With high TC ${tc.toFixed(1)}, DOUBLE (basic says hit).`,
+      );
+    }
+    if (total === 10 && up === "A" && tc >= 4) {
+      suggestions.push(
+        `🎯 10 vs A: With high TC ${tc.toFixed(1)}, DOUBLE (basic says hit).`,
+      );
+    }
+  }
+
+  // Insurance (if dealer shows A)
+  if (up === "A" && tc >= 3) {
+    suggestions.push(
+      `🛡️ Dealer shows Ace with TC ${tc.toFixed(1)}+. Insurance would be profitable!`,
+    );
+  }
+
+  if (suggestions.length > 0) {
+    countCoachTextEl.innerHTML = suggestions.join("<br><br>");
+    countCoachEl.style.display = "block";
+  } else {
+    countCoachEl.style.display = "none";
+  }
+}
 // -------------------- Gameplay --------------------
 function startHand() {
   if (shoe.length <= RULES.reshuffleAt || shoe.length === 0) newShoe();
 
+  countState.dealerHoleCounted = false;
+  splitHands = [];
+  currentHandIndex = 0;
+
+  // Deal cards
   player = [dealCard(), dealCard()];
   dealer = [dealCard(), dealCard()];
+
+  // Reveal player cards and dealer upcard (NOT hole card)
+  revealCard(player[0]);
+  revealCard(player[1]);
+  revealCard(dealer[0]); // upcard
+  // dealer[1] is hole card - NOT revealed yet
 
   handOver = false;
   firstDecisionOpen = true;
@@ -217,16 +468,21 @@ function enableActionsForState() {
   hitBtn.disabled = handOver || pt.total >= 21;
   standBtn.disabled = handOver;
   doubleBtn.disabled = handOver || player.length !== 2; // only first decision
+  splitBtn.disabled = handOver || !isPair(player) || player.length !== 2;
 
-  // If first decision already happened, double should remain disabled.
-  if (!firstDecisionOpen) doubleBtn.disabled = true;
+  // If first decision already happened, double and split should remain disabled.
+  if (!firstDecisionOpen) {
+    doubleBtn.disabled = true;
+    splitBtn.disabled = true;
+  }
 }
 
 function gradeIfFirstDecision(actionLetter) {
   if (!firstDecisionOpen) return;
 
   const canDouble = player.length === 2;
-  const rec = recommendedFirstAction(player, dealer[0], canDouble);
+  const canSplit = isPair(player) && player.length === 2;
+  const rec = recommendedFirstAction(player, dealer[0], canDouble, canSplit);
 
   stats.decisions++;
   const correct = actionLetter === rec;
@@ -248,31 +504,97 @@ function gradeIfFirstDecision(actionLetter) {
 function hit() {
   gradeIfFirstDecision("H");
 
-  player.push(dealCard());
+  const newCard = dealCard();
+  player.push(newCard);
+  revealCard(newCard); // Reveal immediately
+
   const pt = handTotals(player);
 
   if (pt.total > 21) {
+    // If we're in a split and bust
+    if (splitHands.length > 0 && currentHandIndex === 0) {
+      msgEl.textContent = `Hand 1 busted with ${pt.total}. Moving to hand 2...`;
+      setTimeout(() => playNextSplitHand(), 800);
+      return;
+    }
     endHand(`You busted with ${pt.total}. Dealer wins.`);
     return;
   }
-  msgEl.textContent = firstDecisionOpen
-    ? msgEl.textContent
-    : `Hit taken. Your total is ${pt.total}.`;
+
+  if (splitHands.length > 0) {
+    msgEl.textContent = `Hit taken. Hand ${currentHandIndex + 1} total: ${pt.total}`;
+  } else {
+    msgEl.textContent = firstDecisionOpen
+      ? msgEl.textContent
+      : `Hit taken. Your total is ${pt.total}.`;
+  }
   enableActionsForState();
   render();
 }
 
+function playNextSplitHand() {
+  currentHandIndex++;
+  if (currentHandIndex < splitHands.length) {
+    player = splitHands[currentHandIndex];
+    msgEl.textContent = `Playing split hand ${currentHandIndex + 1} of ${splitHands.length}. Total: ${handTotals(player).total}`;
+    enableActionsForState();
+    render();
+  } else {
+    // Both hands played, now dealer plays
+    dealerPlay();
+    settleSplit();
+  }
+}
+
 function stand() {
   gradeIfFirstDecision("S");
+
+  // If we're in a split hand
+  if (splitHands.length > 0 && currentHandIndex === 0) {
+    msgEl.textContent = `Hand 1 stands. Moving to hand 2...`;
+    setTimeout(() => playNextSplitHand(), 800);
+    return;
+  }
+
   dealerPlay();
-  settle();
+  if (splitHands.length > 0) {
+    settleSplit();
+  } else {
+    settle();
+  }
+}
+
+function split() {
+  gradeIfFirstDecision("SP");
+
+  // Create two hands from the pair
+  splitHands = [
+    [player[0], dealCard()],
+    [player[1], dealCard()],
+  ];
+
+  // Reveal the two new cards
+  revealCard(splitHands[0][1]);
+  revealCard(splitHands[1][1]);
+
+  // Play first hand
+  player = splitHands[0];
+  currentHandIndex = 0;
+  firstDecisionOpen = false; // Already graded the split decision
+
+  msgEl.textContent = `Playing split hand 1 of 2. Total: ${handTotals(player).total}`;
+  enableActionsForState();
+  render();
 }
 
 function doubleDown() {
   // double: one card then stand
   gradeIfFirstDecision("D");
 
-  player.push(dealCard());
+  const newCard = dealCard();
+  player.push(newCard);
+  revealCard(newCard); // Reveal immediately
+
   const pt = handTotals(player);
   if (pt.total > 21) {
     endHand(`You doubled and busted with ${pt.total}. Dealer wins.`);
@@ -283,6 +605,12 @@ function doubleDown() {
 }
 
 function dealerPlay() {
+  // Reveal dealer hole card
+  if (!countState.dealerHoleCounted && dealer.length >= 2) {
+    revealCard(dealer[1]);
+    countState.dealerHoleCounted = true;
+  }
+
   while (true) {
     const dt = handTotals(dealer);
     const hit =
@@ -290,7 +618,9 @@ function dealerPlay() {
       (!RULES.dealerStandsSoft17 && dt.total === 17 && dt.isSoft);
 
     if (!hit) break;
-    dealer.push(dealCard());
+    const newCard = dealCard();
+    dealer.push(newCard);
+    revealCard(newCard); // Reveal dealer draws immediately
   }
 }
 
@@ -312,6 +642,56 @@ function settle(doubled = false) {
   endHand(outcome);
 }
 
+function settleSplit() {
+  const dt = handTotals(dealer);
+  let outcomes = [];
+
+  for (let i = 0; i < splitHands.length; i++) {
+    const pt = handTotals(splitHands[i]);
+    let result = "";
+
+    if (pt.total > 21) {
+      result = `Hand ${i + 1}: Bust (${pt.total})`;
+    } else if (dt.total > 21) {
+      result = `Hand ${i + 1}: Win (${pt.total} vs dealer bust)`;
+    } else if (pt.total > dt.total) {
+      result = `Hand ${i + 1}: Win (${pt.total} vs ${dt.total})`;
+    } else if (pt.total < dt.total) {
+      result = `Hand ${i + 1}: Lose (${pt.total} vs ${dt.total})`;
+    } else {
+      result = `Hand ${i + 1}: Push (${pt.total})`;
+    }
+    outcomes.push(result);
+  }
+
+  endHand(outcomes.join(" | "));
+}
+
+function settleSplit() {
+  const dt = handTotals(dealer);
+  let outcomes = [];
+
+  for (let i = 0; i < splitHands.length; i++) {
+    const pt = handTotals(splitHands[i]);
+    let result = "";
+
+    if (pt.total > 21) {
+      result = `Hand ${i + 1}: Bust (${pt.total})`;
+    } else if (dt.total > 21) {
+      result = `Hand ${i + 1}: Win (${pt.total} vs dealer bust)`;
+    } else if (pt.total > dt.total) {
+      result = `Hand ${i + 1}: Win (${pt.total} vs ${dt.total})`;
+    } else if (pt.total < dt.total) {
+      result = `Hand ${i + 1}: Lose (${pt.total} vs ${dt.total})`;
+    } else {
+      result = `Hand ${i + 1}: Push (${pt.total})`;
+    }
+    outcomes.push(result);
+  }
+
+  endHand(outcomes.join(" | "));
+}
+
 function endHand(text) {
   handOver = true;
   firstDecisionOpen = false;
@@ -323,9 +703,14 @@ function endHand(text) {
 function render(showDealerHole = false) {
   // Dealer
   dealerCardsEl.innerHTML = "";
-  dealerMetaEl.textContent = `Upcard: ${dealer[0]?.r ?? "—"}`;
-  console.log((dealerMetaEl.textContent = `Upcard: ${dealer[0]?.r ?? "—"}`));
   const dealerShown = showDealerHole || handOver;
+
+  if (dealerShown && dealer.length > 0) {
+    const dt = handTotals(dealer);
+    dealerMetaEl.textContent = `Total: ${dt.isSoft ? "Soft " : ""}${dt.total}`;
+  } else {
+    dealerMetaEl.textContent = `Upcard: ${dealer[0]?.r ?? "—"}`;
+  }
 
   for (let i = 0; i < dealer.length; i++) {
     const c = dealer[i];
@@ -337,16 +722,64 @@ function render(showDealerHole = false) {
 
   // Player
   playerCardsEl.innerHTML = "";
-  const pt = player.length ? handTotals(player) : { total: "—", isSoft: false };
-  playerMetaEl.textContent = player.length
-    ? `Total: ${pt.isSoft ? "Soft " : ""}${pt.total}`
-    : "Total: —";
 
-  for (const c of player) {
+  // If we have split hands, show the current hand being played
+  const displayHand = splitHands.length > 0 ? player : player;
+  const pt = displayHand.length
+    ? handTotals(displayHand)
+    : { total: "—", isSoft: false };
+
+  if (splitHands.length > 0 && !handOver) {
+    playerMetaEl.textContent = `Hand ${currentHandIndex + 1}/${splitHands.length}: ${pt.isSoft ? "Soft " : ""}${pt.total}`;
+  } else if (displayHand.length) {
+    playerMetaEl.textContent = `Total: ${pt.isSoft ? "Soft " : ""}${pt.total}`;
+  } else {
+    playerMetaEl.textContent = "Total: —";
+  }
+
+  for (const c of displayHand) {
     const div = document.createElement("div");
     div.className = "card";
     div.textContent = `${c.r}${c.s}`;
     playerCardsEl.appendChild(div);
+  }
+
+  // If hand is over and we had splits, show both hands
+  if (handOver && splitHands.length > 0) {
+    playerCardsEl.innerHTML = "";
+    for (let i = 0; i < splitHands.length; i++) {
+      const handDiv = document.createElement("div");
+      handDiv.style.display = "flex";
+      handDiv.style.gap = "6px";
+      handDiv.style.marginBottom = "8px";
+
+      const label = document.createElement("div");
+      label.textContent = `H${i + 1}:`;
+      label.style.fontSize = "11px";
+      label.style.color = "var(--muted)";
+      label.style.marginRight = "4px";
+      label.style.alignSelf = "center";
+      handDiv.appendChild(label);
+
+      for (const c of splitHands[i]) {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.style.width = "56px";
+        div.style.height = "76px";
+        div.style.fontSize = "16px";
+        div.textContent = `${c.r}${c.s}`;
+        handDiv.appendChild(div);
+      }
+      playerCardsEl.appendChild(handDiv);
+    }
+
+    const totals = splitHands
+      .map((h, i) => {
+        const t = handTotals(h);
+        return `H${i + 1}: ${t.isSoft ? "S" : ""}${t.total}`;
+      })
+      .join(" | ");
+    playerMetaEl.textContent = totals;
   }
 
   enableActionsForState();
@@ -358,6 +791,7 @@ nextBtn.addEventListener("click", () => startHand());
 hitBtn.addEventListener("click", () => hit());
 standBtn.addEventListener("click", () => stand());
 doubleBtn.addEventListener("click", () => doubleDown());
+splitBtn.addEventListener("click", () => split());
 
 resetBtn.addEventListener("click", () => {
   stats.decisions = 0;
@@ -372,6 +806,22 @@ function init() {
   newShoe();
   renderStats();
   render();
+
+  // Set up counting UI toggles
+  if (showCountingEl && countingDisplayEl) {
+    showCountingEl.addEventListener("change", function () {
+      if (this.checked) {
+        countingDisplayEl.classList.remove("hidden");
+      } else {
+        countingDisplayEl.classList.add("hidden");
+      }
+    });
+  }
+
+  if (coachModeEl) {
+    coachModeEl.addEventListener("change", function () {
+      updateCountingDisplay();
+    });
+  }
 }
 init();
-dealerCards;
